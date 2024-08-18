@@ -134,6 +134,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="celeste2++.cpp" />
+    <ClCompile Include="EzError.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="EzError.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
