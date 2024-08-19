@@ -6,7 +6,6 @@
 #include <iostream>
 #include <sstream>
 #include "EzError.h"
-using namespace std;
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "D:/Coding/C++/celeste2++/Detours/lib.X86/detours.lib")
 
@@ -39,100 +38,84 @@ BOOL strcmpLowerA(LPCSTR strA, LPCSTR strB) {
 		strB++;
 	}
 }
-
-typedef struct _SYSTEM_MODULE {
-	PVOID Reserved[2];
-	PVOID Base;
-	PVOID EntryPoint;
-	ULONG Size;
-	ULONG Flags;
-	USHORT LoadCount;
-	USHORT ModuleNameOffset;
-	CHAR ImageName[256];
-} SYSTEM_MODULE, * PSYSTEM_MODULE;
-typedef struct _SYSTEM_MODULE_INFORMATION {
-	ULONG ModulesCount;
-	SYSTEM_MODULE Modules[1];
-} SYSTEM_MODULE_INFORMATION, * PSYSTEM_MODULE_INFORMATION;
-typedef NTSTATUS(NTAPI* NtQuerySystemInformationFn)(SYSTEM_INFORMATION_CLASS SystemInformationClass, PVOID SystemInformation, ULONG SystemInformationLength, PULONG ReturnLength);
-HMODULE FindModuleInProcess2(HANDLE hProcess, LPCWSTR moduleName) {
-	HMODULE hNtdll = GetModuleHandle(L"ntdll.dll");
-	if (!hNtdll) return NULL;
-
-	NtQuerySystemInformationFn NtQuerySystemInformation = (NtQuerySystemInformationFn)GetProcAddress(hNtdll, "NtQuerySystemInformation");
-	if (!NtQuerySystemInformation) return NULL;
-
-	ULONG bufferSize = 0x10000; // Initial buffer size
-	PVOID buffer = malloc(bufferSize);
-	if (!buffer) return NULL;
-
-	ULONG returnLength = 0;
-	NTSTATUS status = NtQuerySystemInformation(SystemModuleInformation, buffer, bufferSize, &returnLength);
-	if (status == STATUS_INFO_LENGTH_MISMATCH) {
-		free(buffer);
-		bufferSize = returnLength;
-		buffer = malloc(bufferSize);
-		if (!buffer) return NULL;
-		status = NtQuerySystemInformation(SystemModuleInformation, buffer, bufferSize, &returnLength);
+BOOL strEndsWithLowerW(LPCWSTR strA, LPCWSTR strB) {
+	LPCWSTR strAEnd = strA;
+	while (*strAEnd != L'\0') {
+		strAEnd++;
 	}
-
-	if (status != STATUS_SUCCESS) {
-		free(buffer);
-		return NULL;
+	LPCWSTR strBEnd = strB;
+	while (*strBEnd != L'\0') {
+		strBEnd++;
 	}
+	while (TRUE) {
+		if (tolower(*strAEnd) != tolower(*strBEnd)) {
+			return FALSE;
+		}
+		if (strAEnd == strA || strBEnd == strB) {
+			return TRUE;
+		}
+		strAEnd--;
+		strBEnd--;
+	}
+}
+BOOL strEndsWithLowerA(LPCSTR strA, LPCSTR strB) {
+	LPCSTR strAEnd = strA;
+	while (*strAEnd != '\0') {
+		strAEnd++;
+	}
+	LPCSTR strBEnd = strB;
+	while (*strBEnd != '\0') {
+		strBEnd++;
+	}
+	while (TRUE) {
+		if (tolower(*strAEnd) != tolower(*strBEnd)) {
+			return FALSE;
+		}
+		if (strAEnd == strA || strBEnd == strB) {
+			return TRUE;
+		}
+		strAEnd--;
+		strBEnd--;
+	}
+}
 
-	PSYSTEM_MODULE_INFORMATION moduleInfo = (PSYSTEM_MODULE_INFORMATION)buffer;
-	for (ULONG i = 0; i < moduleInfo->ModulesCount; ++i) {
-		PSYSTEM_MODULE module = &moduleInfo->Modules[i];
-		if (module->Base && module->ModuleNameOffset) {
-			// Ensure the module name is properly null-terminated
-			WCHAR moduleNameBuffer[256];
-			mbstowcs_s(NULL, moduleNameBuffer, (const char*)module->ImageName, sizeof(module->ImageName));
-
-			// Compare the module name
-			if (_wcsicmp(moduleNameBuffer, moduleName) == 0) {
-				free(buffer);
-				return (HMODULE)module->Base;
-			}
+typedef NTSTATUS(NTAPI* PNtQueryInformationProcess)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
+PEB GetProcessPEB(HANDLE hProcess) {
+	HMODULE ntdll = GetModuleHandle(L"ntdll.dll");
+	if (ntdll == NULL) {
+		ntdll = LoadLibrary(L"ntdll.dll");
+		if (ntdll == NULL) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
 		}
 	}
 
-	free(buffer);
-	return NULL;
+	PNtQueryInformationProcess NtQueryInformationProcess = reinterpret_cast<PNtQueryInformationProcess>(GetProcAddress(ntdll, "NtQueryInformationProcess"));
+	if (NtQueryInformationProcess == NULL) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	PROCESS_BASIC_INFORMATION pbi = { };
+	EzError::ThrowFromNT(NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pbi, sizeof(PROCESS_BASIC_INFORMATION), NULL));
+
+	PEB peb = { };
+	if (!ReadProcessMemory(hProcess, pbi.PebBaseAddress, &peb, sizeof(PEB), NULL)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	return peb;
 }
-HMODULE FindModuleInProcess(HANDLE hProcess, LPCWSTR moduleName) {
+HMODULE GetProcessBaseAddress(HANDLE hProcess) {
+	PEB peb = GetProcessPEB(hProcess);
 
-	MODULEINFO moduleInfo = { };
-	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetProcessId(hProcess));
-	if (hSnapshot == INVALID_HANDLE_VALUE) {
-		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	HMODULE imageBaseAddress = reinterpret_cast<HMODULE>(peb.Reserved3[1]);
+	if (imageBaseAddress == NULL) {
+		throw EzError(L"PEB.ImageBaseAddress was NULL.", __FILE__, __LINE__);
 	}
 
-	MODULEENTRY32 moduleEntry = { };
-	moduleEntry.dwSize = sizeof(MODULEENTRY32);
-	if (Module32First(hSnapshot, &moduleEntry)) {
-		do {
-			if (strcmpLowerW(moduleName, moduleEntry.szModule)) {
-				CloseHandleSafely(hSnapshot);
-				return moduleEntry.hModule;
-			}
-		} while (Module32Next(hSnapshot, &moduleEntry));
-	}
-
-	if (GetLastError() != ERROR_NO_MORE_FILES) {
-		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
-	}
-
-	CloseHandleSafely(hSnapshot);
-	throw EzError(L"Specified module could not be found in the remote process.", __FILE__, __LINE__);
+	return imageBaseAddress;
 }
-FARPROC FindFunctionInProcess(HANDLE hProcess, HMODULE hModule, LPCSTR functionName) {
-	MEMORY_BASIC_INFORMATION memInfo = { };
-	if (!VirtualQueryEx(hProcess, hModule, &memInfo, sizeof(MEMORY_BASIC_INFORMATION))) {
-		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
-	}
-
-	PIMAGE_DOS_HEADER pDosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(memInfo.AllocationBase);
+IMAGE_NT_HEADERS ReadModuleHeaders(HANDLE hProcess, HMODULE hModule) {
+	PIMAGE_DOS_HEADER pDosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(hModule);
 	IMAGE_DOS_HEADER dosHeader = { };
 	if (!ReadProcessMemory(hProcess, pDosHeader, &dosHeader, sizeof(IMAGE_DOS_HEADER), NULL)) {
 		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
@@ -141,7 +124,7 @@ FARPROC FindFunctionInProcess(HANDLE hProcess, HMODULE hModule, LPCSTR functionN
 		throw EzError(L"Bad MZ magic.", __FILE__, __LINE__);
 	}
 
-	PIMAGE_NT_HEADERS pNtHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<BYTE*>(memInfo.AllocationBase) + dosHeader.e_lfanew);
+	PIMAGE_NT_HEADERS pNtHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<BYTE*>(hModule) + dosHeader.e_lfanew);
 	IMAGE_NT_HEADERS ntHeaders = { };
 	if (!ReadProcessMemory(hProcess, pNtHeaders, &ntHeaders, sizeof(IMAGE_NT_HEADERS), NULL)) {
 		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
@@ -153,35 +136,150 @@ FARPROC FindFunctionInProcess(HANDLE hProcess, HMODULE hModule, LPCSTR functionN
 		throw EzError(L"Bad PE Optional magic.", __FILE__, __LINE__);
 	}
 
+	return ntHeaders;
+}
+void RunToEntryPoint(HANDLE hProcess, HANDLE hThread) {
+	DWORD processId = GetProcessId(hProcess);
+	DWORD threadId = GetThreadId(hThread);
+
+	HMODULE processMainModule = GetProcessBaseAddress(hProcess);
+
+	IMAGE_NT_HEADERS ntHeaders = ReadModuleHeaders(hProcess, processMainModule);
+
+	LPVOID entryPoint = reinterpret_cast<PBYTE>(processMainModule) + ntHeaders.OptionalHeader.AddressOfEntryPoint;
+
+	if (!DebugActiveProcess(processId)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	BYTE originalInstruction = 0;
+	if (!ReadProcessMemory(hProcess, entryPoint, &originalInstruction, 1, NULL)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	BYTE newInstruction = 0xCC;
+	if (!WriteProcessMemory(hProcess, entryPoint, &newInstruction, 1, NULL)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	if (!FlushInstructionCache(hProcess, entryPoint, 1)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	if (ResumeThread(hThread) == 0xFFFFFFFF) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	DEBUG_EVENT debugEvent = { };
+	while (WaitForDebugEvent(&debugEvent, INFINITE)) {
+		if (debugEvent.dwProcessId != processId ||
+			debugEvent.dwDebugEventCode != EXCEPTION_DEBUG_EVENT ||
+			debugEvent.u.Exception.ExceptionRecord.ExceptionCode != EXCEPTION_BREAKPOINT ||
+			debugEvent.u.Exception.ExceptionRecord.ExceptionAddress != entryPoint) {
+			if (!ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, DBG_CONTINUE)) {
+				EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+			}
+			continue;
+		}
+
+		CONTEXT context = { };
+		context.ContextFlags = CONTEXT_FULL;
+		if (!GetThreadContext(hThread, &context)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+
+		if (!WriteProcessMemory(hProcess, entryPoint, &originalInstruction, 1, NULL)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+
+		if (!FlushInstructionCache(hProcess, entryPoint, 1)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+
+		context.Eip = reinterpret_cast<DWORD>(entryPoint);
+		if (!SetThreadContext(hThread, &context)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+
+		if (SuspendThread(hThread) == 0xFFFFFFFF) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+		if (!ContinueDebugEvent(debugEvent.dwProcessId, debugEvent.dwThreadId, DBG_CONTINUE)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+		break;
+	}
+
+	if (!DebugActiveProcessStop(processId)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+}
+HMODULE FindModuleInProcess(HANDLE hProcess, LPCWSTR moduleName) {
+	PEB peb = GetProcessPEB(hProcess);
+	if (peb.Ldr == NULL) {
+		throw EzError(L"The windows loader has not yet completed initialization.", __FILE__, __LINE__);
+	}
+
+	PEB_LDR_DATA ldrData = { };
+	if (!ReadProcessMemory(hProcess, peb.Ldr, &ldrData, sizeof(PEB_LDR_DATA), NULL)) {
+		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+	}
+
+	LIST_ENTRY* listCurrent = ldrData.InMemoryOrderModuleList.Flink;
+	do {
+		LDR_DATA_TABLE_ENTRY ldrEntry = {  };
+		if (!ReadProcessMemory(hProcess, CONTAINING_RECORD(listCurrent, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks), &ldrEntry, sizeof(LDR_DATA_TABLE_ENTRY), NULL)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+
+		LPWSTR baseDllName = new WCHAR[ldrEntry.FullDllName.Length];
+		if (!ReadProcessMemory(hProcess, ldrEntry.FullDllName.Buffer, baseDllName, ldrEntry.FullDllName.Length * sizeof(WCHAR), nullptr)) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
+
+		if (strEndsWithLowerW(baseDllName, moduleName)) {
+			delete[] baseDllName;
+			return (HMODULE)ldrEntry.DllBase;
+		}
+
+		delete[] baseDllName;
+		listCurrent = ldrEntry.InMemoryOrderLinks.Flink;
+	} while (listCurrent != ldrData.InMemoryOrderModuleList.Flink);
+
+	throw EzError(L"The specified module could not be found in the remote process.", __FILE__, __LINE__);
+}
+FARPROC FindFunctionInProcess(HANDLE hProcess, HMODULE hModule, LPCSTR functionName) {
+	IMAGE_NT_HEADERS ntHeaders = ReadModuleHeaders(hProcess, hModule);
+
 	if (ntHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].Size < sizeof(IMAGE_EXPORT_DIRECTORY)) {
 		throw EzError(L"hModule did not contain an export table.", __FILE__, __LINE__);
 	}
-	PIMAGE_EXPORT_DIRECTORY pExportDirectory = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(reinterpret_cast<BYTE*>(memInfo.AllocationBase) + ntHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
+	PIMAGE_EXPORT_DIRECTORY pExportDirectory = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(reinterpret_cast<BYTE*>(hModule) + ntHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
 	IMAGE_EXPORT_DIRECTORY exportDirectory = { };
 	if (!ReadProcessMemory(hProcess, pExportDirectory, &exportDirectory, sizeof(IMAGE_EXPORT_DIRECTORY), NULL)) {
 		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
 	}
 
-	PDWORD pNames = reinterpret_cast<PDWORD>(reinterpret_cast<BYTE*>(memInfo.AllocationBase) + exportDirectory.AddressOfNames);
+	PDWORD pNames = reinterpret_cast<PDWORD>(reinterpret_cast<BYTE*>(hModule) + exportDirectory.AddressOfNames);
 	DWORD* names = new DWORD[exportDirectory.NumberOfNames];
 	if (!ReadProcessMemory(hProcess, pNames, names, sizeof(DWORD) * exportDirectory.NumberOfNames, NULL)) {
 		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
 	}
 
-	PWORD pOrdinals = reinterpret_cast<PWORD>(reinterpret_cast<BYTE*>(memInfo.AllocationBase) + exportDirectory.AddressOfNameOrdinals);
+	PWORD pOrdinals = reinterpret_cast<PWORD>(reinterpret_cast<BYTE*>(hModule) + exportDirectory.AddressOfNameOrdinals);
 	WORD* ordinals = new WORD[exportDirectory.NumberOfNames];
 	if (!ReadProcessMemory(hProcess, pOrdinals, ordinals, sizeof(WORD) * exportDirectory.NumberOfNames, NULL)) {
 		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
 	}
 
-	PDWORD pFunctions = reinterpret_cast<PDWORD>(reinterpret_cast<BYTE*>(memInfo.AllocationBase) + exportDirectory.AddressOfFunctions);
+	PDWORD pFunctions = reinterpret_cast<PDWORD>(reinterpret_cast<BYTE*>(hModule) + exportDirectory.AddressOfFunctions);
 	DWORD* functions = new DWORD[exportDirectory.NumberOfFunctions];
 	if (!ReadProcessMemory(hProcess, pFunctions, functions, sizeof(DWORD) * exportDirectory.NumberOfFunctions, NULL)) {
 		EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
 	}
 
 	for (DWORD i = 0; i < exportDirectory.NumberOfNames; ++i) {
-		PCHAR pName = reinterpret_cast<PCHAR>(reinterpret_cast<BYTE*>(memInfo.AllocationBase) + names[i]);
+		PCHAR pName = reinterpret_cast<PCHAR>(reinterpret_cast<BYTE*>(hModule) + names[i]);
 		CHAR* name = new CHAR[MAX_PATH];
 		SIZE_T nameLength = 0;
 		if (!ReadProcessMemory(hProcess, pName, name, sizeof(CHAR) * MAX_PATH, &nameLength)) {
@@ -254,7 +352,6 @@ void LoadModuleInProcess(HANDLE hProcess, LPCWSTR moduleName) {
 	}
 }
 
-// Replaces all calls to originalFunction with detourFunction. Returns a special pointer which can be used to call originalFunction even after a detour is set.
 PVOID SetDetourForThread(PVOID originalFunction, PVOID detourFunction, HANDLE hThread = INVALID_HANDLE_VALUE) {
 	/* KNOWN ISSUE
 	Detours.h makes changes to the function's machine code which apply to all threads no matter what.
@@ -362,22 +459,8 @@ BOOL WINAPI GetKeyboardStateDetour(PBYTE lpKeyState) {
 	return output;
 }
 void SetDetours() {
-	HMODULE user32Dll = GetModuleHandle(L"User32.dll");
-	if (user32Dll == NULL) {
-		throw EzError(L"User32.dll could not be found.", __FILE__, __LINE__);
-	}
-
-	FARPROC getAsyncKeyState = GetProcAddress(user32Dll, "GetAsyncKeyState");
-	if (getAsyncKeyState == NULL) {
-		throw EzError(L"GetAsyncKeyState could not be found.", __FILE__, __LINE__);
-	}
-	GetAsyncKeyStateOriginal = reinterpret_cast<PGetAsyncKeyState>(SetDetour(getAsyncKeyState, GetAsyncKeyStateDetour));
-
-	FARPROC getKeyboardState = GetProcAddress(user32Dll, "GetKeyboardState");
-	if (getKeyboardState == NULL) {
-		throw EzError(L"GetKeyboardState could not be found.", __FILE__, __LINE__);
-	}
-	GetKeyboardStateOriginal = reinterpret_cast<PGetKeyboardState>(SetDetour(getKeyboardState, GetKeyboardStateDetour));
+	GetAsyncKeyStateOriginal = reinterpret_cast<PGetAsyncKeyState>(SetDetour(GetAsyncKeyState, GetAsyncKeyStateDetour));
+	GetKeyboardStateOriginal = reinterpret_cast<PGetKeyboardState>(SetDetour(GetKeyboardState, GetKeyboardStateDetour));
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -406,8 +489,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 int main()
 {
 	// TODO hook GetRawInputData and WM_INPUT
-	// TODO fix error if CREATE_SUSPENDED = TRUE
-
 	try {
 		STARTUPINFO si = { };
 		si.cb = sizeof(STARTUPINFO);
@@ -416,8 +497,11 @@ int main()
 		if (!CreateProcess(L"D:\\Coding\\C++\\celeste2++\\celeste2++\\Debug\\celeste2.exe", NULL, NULL, NULL, FALSE, CREATE_SUSPENDED, NULL, NULL, &si, &pi)) {
 			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
 		}
-
+		RunToEntryPoint(pi.hProcess, pi.hThread);
 		LoadModuleInProcess(pi.hProcess, L"celeste2++.dll");
+		if (ResumeThread(pi.hThread) == 0xFFFFFFFF) {
+			EzError::ThrowFromCode(GetLastError(), __FILE__, __LINE__);
+		}
 
 		CloseHandleSafely(pi.hThread);
 		CloseHandleSafely(pi.hProcess);
