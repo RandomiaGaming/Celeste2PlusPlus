@@ -1,9 +1,9 @@
 {
   "Version": 1,
-  "WorkspaceRootPath": "D:\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\",
+  "WorkspaceRootPath": "D:\\ImportantData\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{4135E0E5-427D-4A42-8C87-0841E86FF3A9}|celeste2\u002B\u002B.vcxproj|D:\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "AbsoluteMoniker": "D:0:0:{4135E0E5-427D-4A42-8C87-0841E86FF3A9}|celeste2\u002B\u002B.vcxproj|D:\\ImportantData\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
       "RelativeMoniker": "D:0:0:{4135E0E5-427D-4A42-8C87-0841E86FF3A9}|celeste2\u002B\u002B.vcxproj|solutionrelative:celeste2\u002B\u002B.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
     }
   ],
@@ -24,11 +24,11 @@
               "$type": "Document",
               "DocumentIndex": 0,
               "Title": "celeste2\u002B\u002B.cpp",
-              "DocumentMoniker": "D:\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B.cpp",
+              "DocumentMoniker": "D:\\ImportantData\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B.cpp",
               "RelativeDocumentMoniker": "celeste2\u002B\u002B.cpp",
-              "ToolTip": "D:\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B.cpp",
+              "ToolTip": "D:\\ImportantData\\Coding\\C\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B\\celeste2\u002B\u002B.cpp",
               "RelativeToolTip": "celeste2\u002B\u002B.cpp",
-              "ViewState": "AQIAADcBAAAAAAAAAAAAAAACAAABAAAA",
+              "ViewState": "AQIAADsAAAAAAAAAAADwv5IAAAABAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
               "WhenOpened": "2024-08-17T06:53:57.333Z",
               "EditorCaption": ""
